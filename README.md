@@ -28,20 +28,30 @@
 
 本项目使用 [uv](https://github.com/astral-sh/uv) 现代 Python 包管理器。
 
-1.  **环境准备**：确保您的系统中已安装 `uv`。
-2.  **启动程序**：在项目根目录下，运行以下命令即可自动安装依赖并启动应用：
-    ```powershell
-    uv run python main.py
-    ```
+### 桌面版 (Desktop)
+
+在项目根目录下，运行以下命令即可启动桌面应用：
+```powershell
+uv run python main.py
+```
+
+### Web 版 (Web Version)
+
+如果您希望在浏览器中运行，可以使用 Streamlit 版本：
+```powershell
+uv run streamlit run streamlit_app.py
+```
 
 ## 依赖项
 
-*   PySide6 (Qt for Python)
+*   PySide6 (Qt for Python, 仅桌面版需要)
 *   Pillow (图像处理)
+*   Streamlit (仅 Web 版需要)
 
 ## 项目结构
 
-*   `main.py`: GUI 界面交互逻辑与视图控制。
+*   `main.py`: 桌面版 GUI 界面交互逻辑。
+*   `streamlit_app.py`: Web 版界面交互逻辑。
 *   `processor.py`: 核心图像处理、胶片帧生成与排版算法逻辑。
 *   `pyproject.toml`: 项目元数据及依赖管理。
 *   `test_processor.py`: 用于验证核心算法的自动化测试脚本。
