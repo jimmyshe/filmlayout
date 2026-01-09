@@ -38,7 +38,7 @@ def test_generate():
     
     # Layout test
     frames = [frame1, frame2, frame3, frame4, frame5] * 8
-    pages, info = processor.layout_on_a4(frames)
+    pages, info = processor.layout_on_paper(frames, paper_size="A4")
     for i, page in enumerate(pages):
         page.save(f"test_page_{i}.png")
         print(f"Saved test_page_{i}.png")

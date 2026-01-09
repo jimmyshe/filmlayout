@@ -16,9 +16,12 @@ SPROCKET_HOLE_H_MM = 1.98
 SPROCKET_HOLE_PITCH_MM = 4.75
 SPROCKET_HOLE_RADIUS_MM = 0.5
 
-# A4 dimensions
-A4_W_MM = 210
-A4_H_MM = 297
+# Paper dimensions
+PAPER_SIZES = {
+    "A4": (210, 297),
+    "A5": (148, 210),
+    "A6": (105, 148)
+}
 
 def draw_rounded_rect(draw, x, y, w, h, r, fill):
     draw.rectangle([x + r, y, x + w - r, y + h], fill=fill)
@@ -121,19 +124,23 @@ def create_film_frame(image_path, crop_mode='short', color_mode='color', film_ty
 
     return frame
 
-def layout_on_a4(image_list, margin_mm=10, gap_mm=2, dpi=DEFAULT_DPI):
+def layout_on_paper(image_list, paper_size="A4", orientation="Auto", margin_mm=10, gap_mm=2, dpi=DEFAULT_DPI):
     """
     image_list: list of PIL Image objects (the film frames)
-    returns: (list of A4 PIL Images, list of layout_info)
+    paper_size: "A4", "A5", or "A6"
+    orientation: "Auto", "Portrait", or "Landscape"
+    returns: (list of PIL Images, list of layout_info)
     """
     margin = mm_to_px(margin_mm, dpi)
     gap = mm_to_px(gap_mm, dpi)
     
-    a4_w_p = mm_to_px(A4_W_MM, dpi)
-    a4_h_p = mm_to_px(A4_H_MM, dpi)
+    paper_w_mm, paper_h_mm = PAPER_SIZES.get(paper_size, PAPER_SIZES["A4"])
     
-    a4_w_l = mm_to_px(A4_H_MM, dpi)
-    a4_h_l = mm_to_px(A4_W_MM, dpi)
+    w_p = mm_to_px(paper_w_mm, dpi)
+    h_p = mm_to_px(paper_h_mm, dpi)
+    
+    w_l = mm_to_px(paper_h_mm, dpi)
+    h_l = mm_to_px(paper_w_mm, dpi)
     
     frame_w = mm_to_px(FRAME_W_MM, dpi)
     frame_h = mm_to_px(FRAME_H_MM, dpi)
@@ -144,17 +151,26 @@ def layout_on_a4(image_list, margin_mm=10, gap_mm=2, dpi=DEFAULT_DPI):
         if cols < 0 or rows < 0: return 0, 0, 0
         return cols * rows, cols, rows
 
-    cap_p, cols_p, rows_p = get_capacity(a4_w_p, a4_h_p, frame_w, frame_h, margin, gap)
-    cap_l, cols_l, rows_l = get_capacity(a4_w_l, a4_h_l, frame_w, frame_h, margin, gap)
+    cap_p, cols_p, rows_p = get_capacity(w_p, h_p, frame_w, frame_h, margin, gap)
+    cap_l, cols_l, rows_l = get_capacity(w_l, h_l, frame_w, frame_h, margin, gap)
     
-    if cap_l > cap_p:
-        best_w, best_h = a4_w_l, a4_h_l
-        best_cols, best_rows = cols_l, rows_l
-        frames_per_page = cap_l
-    else:
-        best_w, best_h = a4_w_p, a4_h_p
+    if orientation == "Portrait":
+        best_w, best_h = w_p, h_p
         best_cols, best_rows = cols_p, rows_p
         frames_per_page = cap_p
+    elif orientation == "Landscape":
+        best_w, best_h = w_l, h_l
+        best_cols, best_rows = cols_l, rows_l
+        frames_per_page = cap_l
+    else: # Auto
+        if cap_l > cap_p:
+            best_w, best_h = w_l, h_l
+            best_cols, best_rows = cols_l, rows_l
+            frames_per_page = cap_l
+        else:
+            best_w, best_h = w_p, h_p
+            best_cols, best_rows = cols_p, rows_p
+            frames_per_page = cap_p
         
     pages = []
     all_layout_info = []

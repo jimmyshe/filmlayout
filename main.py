@@ -26,6 +26,7 @@ class MainWindow(QMainWindow):
         self.images_data = [] # List of dict: {"path": str, "crop": str, "color": str, "type": str}
         self.preview_pages = []
         self.layout_info = []
+        self.current_page = 0
 
         self.init_ui()
 
@@ -43,12 +44,21 @@ class MainWindow(QMainWindow):
         self.btn_add.clicked.connect(self.add_photos)
         left_layout.addWidget(self.btn_add)
 
+        self.btn_remove = QPushButton("移除选中照片")
+        self.btn_remove.clicked.connect(self.remove_photo)
+        left_layout.addWidget(self.btn_remove)
+
         self.btn_clear = QPushButton("清空列表")
         self.btn_clear.clicked.connect(self.clear_photos)
         left_layout.addWidget(self.btn_clear)
 
-        left_layout.addWidget(QLabel("已添加照片:"))
+        left_layout.addWidget(QLabel("已添加照片 (可拖动排序):"))
         self.list_widget = QListWidget()
+        self.list_widget.setDragEnabled(True)
+        self.list_widget.setAcceptDrops(True)
+        self.list_widget.setDropIndicatorShown(True)
+        self.list_widget.setDragDropMode(QListWidget.InternalMove)
+        self.list_widget.model().rowsMoved.connect(self.on_rows_moved)
         self.list_widget.currentRowChanged.connect(self.on_selection_changed)
         left_layout.addWidget(self.list_widget)
 
@@ -107,6 +117,18 @@ class MainWindow(QMainWindow):
         layout_group = QGroupBox("全局排版设置")
         layout_vbox = QVBoxLayout(layout_group)
 
+        layout_vbox.addWidget(QLabel("纸张大小:"))
+        self.combo_paper_size = QComboBox()
+        self.combo_paper_size.addItems(["A4", "A5", "A6"])
+        self.combo_paper_size.currentIndexChanged.connect(self.update_preview)
+        layout_vbox.addWidget(self.combo_paper_size)
+
+        layout_vbox.addWidget(QLabel("纸张方向:"))
+        self.combo_orientation = QComboBox()
+        self.combo_orientation.addItems(["自动 (Auto)", "纵向 (Portrait)", "横向 (Landscape)"])
+        self.combo_orientation.currentIndexChanged.connect(self.update_preview)
+        layout_vbox.addWidget(self.combo_orientation)
+
         layout_vbox.addWidget(QLabel("页边距 (mm):"))
         self.spin_margin = QSpinBox()
         self.spin_margin.setRange(0, 50)
@@ -139,7 +161,25 @@ class MainWindow(QMainWindow):
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         
-        right_layout.addWidget(QLabel("预览 (第一页 - 点击照片可选择):"))
+        header_layout = QHBoxLayout()
+        header_layout.addWidget(QLabel("预览 (点击照片可选择):"))
+        header_layout.addStretch()
+        
+        self.btn_prev = QPushButton("<")
+        self.btn_prev.setFixedWidth(30)
+        self.btn_prev.clicked.connect(self.prev_page)
+        header_layout.addWidget(self.btn_prev)
+        
+        self.lbl_page = QLabel("第 0 / 0 页")
+        header_layout.addWidget(self.lbl_page)
+        
+        self.btn_next = QPushButton(">")
+        self.btn_next.setFixedWidth(30)
+        self.btn_next.clicked.connect(self.next_page)
+        header_layout.addWidget(self.btn_next)
+        
+        right_layout.addLayout(header_layout)
+
         self.scroll_area = QScrollArea()
         self.preview_label = ClickableLabel("添加照片后显示预览")
         self.preview_label.setAlignment(Qt.AlignCenter)
@@ -176,6 +216,48 @@ class MainWindow(QMainWindow):
         self.group_settings.setEnabled(False)
         self.preview_pages = []
         self.layout_info = []
+        self.current_page = 0
+        self.lbl_page.setText("第 0 / 0 页")
+
+    def remove_photo(self):
+        row = self.list_widget.currentRow()
+        if row < 0:
+            return
+        
+        self.images_data.pop(row)
+        self.list_widget.takeItem(row)
+        
+        if not self.images_data:
+            self.clear_photos()
+        else:
+            self.update_preview()
+
+    def on_rows_moved(self, parent, start, end, destination, row):
+        # destination is the parent of the move (None for top level)
+        # row is the index where items were moved to.
+        # But wait, QListWidget internal move is easier to sync by just rebuilding from the list widget
+        # because the internal logic of destination/row can be tricky.
+        
+        # Let's rebuild images_data based on list_widget items' original positions?
+        # No, better way: each item should have its original data or we just sync carefully.
+        # Since we just have paths and settings, we can reorder self.images_data.
+        
+        # Actually, when items move, we need to know where they came from and where they went.
+        # A simpler way for QListWidget is to store the data in the Item itself.
+        
+        # Alternatively, use the moved signals:
+        if start == row: # No real move
+            return
+            
+        # destination_row is where it ended up
+        dest_row = row
+        if dest_row > start:
+            dest_row -= 1 # Adjust for the fact that removing the item shifts indices
+            
+        item_data = self.images_data.pop(start)
+        self.images_data.insert(dest_row, item_data)
+        
+        self.update_preview()
 
     def on_selection_changed(self, row):
         if row < 0 or row >= len(self.images_data):
@@ -231,6 +313,16 @@ class MainWindow(QMainWindow):
             data["rotation"] = rotation
         self.update_preview()
 
+    def prev_page(self):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.update_preview()
+
+    def next_page(self):
+        if self.current_page < len(self.preview_pages) - 1:
+            self.current_page += 1
+            self.update_preview()
+
     def update_preview(self):
         if not self.images_data:
             return
@@ -238,7 +330,7 @@ class MainWindow(QMainWindow):
         # Create film frames
         frames = []
         for data in self.images_data:
-            # We don't draw holes here because layout_on_a4 will draw them continuously
+            # We don't draw holes here because layout_on_paper will draw them continuously
             frame = processor.create_film_frame(
                 data["path"], 
                 crop_mode=data["crop"],
@@ -249,38 +341,74 @@ class MainWindow(QMainWindow):
             )
             frames.append(frame)
 
-        # Layout on A4
+        # Layout on paper
+        paper_size = self.combo_paper_size.currentText()
+        orientation_idx = self.combo_orientation.currentIndex()
+        orientation = ["Auto", "Portrait", "Landscape"][orientation_idx]
         margin = self.spin_margin.value()
         gap = self.spin_gap.value()
-        self.preview_pages, self.layout_info = processor.layout_on_a4(frames, margin_mm=margin, gap_mm=gap)
+        self.preview_pages, self.layout_info = processor.layout_on_paper(
+            frames, 
+            paper_size=paper_size, 
+            orientation=orientation,
+            margin_mm=margin, 
+            gap_mm=gap
+        )
 
-        if self.preview_pages:
-            # Show first page
-            pil_img = self.preview_pages[0]
-            qimg = self.pil_to_qimage(pil_img)
-            pixmap = QPixmap.fromImage(qimg)
+        if not self.preview_pages:
+            self.lbl_page.setText("第 0 / 0 页")
+            return
+
+        # Ensure current_page is valid
+        if self.current_page >= len(self.preview_pages):
+            self.current_page = len(self.preview_pages) - 1
+        if self.current_page < 0:
+            self.current_page = 0
             
-            # Scale to container
-            view_w = self.scroll_area.viewport().width() - 10
-            view_h = self.scroll_area.viewport().height() - 10
-            
-            if view_w > 0 and view_h > 0:
-                scaled_pixmap = pixmap.scaled(
-                    view_w, 
-                    view_h, 
-                    Qt.KeepAspectRatio, 
-                    Qt.SmoothTransformation
-                )
-                self.preview_label.setPixmap(scaled_pixmap)
+        self.lbl_page.setText(f"第 {self.current_page + 1} / {len(self.preview_pages)} 页")
+        self.btn_prev.setEnabled(self.current_page > 0)
+        self.btn_next.setEnabled(self.current_page < len(self.preview_pages) - 1)
+
+        # Show current page
+        pil_img = self.preview_pages[self.current_page]
+        qimg = self.pil_to_qimage(pil_img)
+        pixmap = QPixmap.fromImage(qimg)
+        
+        # Scale to container
+        view_w = self.scroll_area.viewport().width() - 10
+        view_h = self.scroll_area.viewport().height() - 10
+        
+        if view_w > 0 and view_h > 0:
+            scaled_pixmap = pixmap.scaled(
+                view_w, 
+                view_h, 
+                Qt.KeepAspectRatio, 
+                Qt.SmoothTransformation
+            )
+            self.preview_label.setPixmap(scaled_pixmap)
+        else:
+            self.preview_label.setPixmap(pixmap.scaled(800, 800, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+        # Update list widget items to show which ones are NOT on the current page
+        current_page_indices = {info["index"] for info in self.layout_info[self.current_page]}
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if i in current_page_indices:
+                item.setForeground(Qt.black)
+                # Maybe add a small indicator?
+                text = os.path.basename(self.images_data[i]["path"])
+                item.setText(text)
             else:
-                self.preview_label.setPixmap(pixmap.scaled(800, 800, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                item.setForeground(Qt.gray)
+                text = os.path.basename(self.images_data[i]["path"]) + " (不在当前页)"
+                item.setText(text)
 
     def on_preview_clicked(self, pos):
         if not self.layout_info or not self.preview_pages:
             return
         
-        # We only show first page in preview
-        page_info = self.layout_info[0]
+        # Use the current page info
+        page_info = self.layout_info[self.current_page]
         pixmap = self.preview_label.pixmap()
         if not pixmap or pixmap.isNull():
             return
@@ -353,9 +481,19 @@ class MainWindow(QMainWindow):
                     )
                     high_res_frames.append(frame)
                 
+                paper_size = self.combo_paper_size.currentText()
+                orientation_idx = self.combo_orientation.currentIndex()
+                orientation = ["Auto", "Portrait", "Landscape"][orientation_idx]
                 margin = self.spin_margin.value()
                 gap = self.spin_gap.value()
-                high_res_pages, _ = processor.layout_on_a4(high_res_frames, margin_mm=margin, gap_mm=gap, dpi=export_dpi)
+                high_res_pages, _ = processor.layout_on_paper(
+                    high_res_frames, 
+                    paper_size=paper_size, 
+                    orientation=orientation,
+                    margin_mm=margin, 
+                    gap_mm=gap, 
+                    dpi=export_dpi
+                )
                 
                 if not high_res_pages:
                     return
