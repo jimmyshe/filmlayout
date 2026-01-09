@@ -2,12 +2,20 @@ import sys
 import os
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QListWidget, QLabel, 
-                             QFileDialog, QScrollArea, QSpinBox, QComboBox, QGroupBox)
+                             QFileDialog, QScrollArea, QSpinBox, QComboBox, QGroupBox, QMessageBox)
 from PySide6.QtGui import QPixmap, QImage
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal, QPoint
 from PIL import Image
 
 import processor
+
+class ClickableLabel(QLabel):
+    clicked = Signal(QPoint)
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            # In PySide6, position() returns QPointF
+            self.clicked.emit(event.position().toPoint())
+        super().mousePressEvent(event)
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -17,6 +25,7 @@ class MainWindow(QMainWindow):
 
         self.images_data = [] # List of dict: {"path": str, "crop": str, "color": str, "type": str}
         self.preview_pages = []
+        self.layout_info = []
 
         self.init_ui()
 
@@ -98,10 +107,11 @@ class MainWindow(QMainWindow):
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         
-        right_layout.addWidget(QLabel("预览 (第一页):"))
+        right_layout.addWidget(QLabel("预览 (第一页 - 点击照片可选择):"))
         self.scroll_area = QScrollArea()
-        self.preview_label = QLabel("添加照片后显示预览")
+        self.preview_label = ClickableLabel("添加照片后显示预览")
         self.preview_label.setAlignment(Qt.AlignCenter)
+        self.preview_label.clicked.connect(self.on_preview_clicked)
         self.scroll_area.setWidget(self.preview_label)
         self.scroll_area.setWidgetResizable(True)
         right_layout.addWidget(self.scroll_area)
@@ -131,6 +141,8 @@ class MainWindow(QMainWindow):
         self.preview_label.setText("添加照片后显示预览")
         self.preview_label.setPixmap(QPixmap())
         self.group_settings.setEnabled(False)
+        self.preview_pages = []
+        self.layout_info = []
 
     def on_selection_changed(self, row):
         if row < 0 or row >= len(self.images_data):
@@ -167,18 +179,20 @@ class MainWindow(QMainWindow):
         # Create film frames
         frames = []
         for data in self.images_data:
+            # We don't draw holes here because layout_on_a4 will draw them continuously
             frame = processor.create_film_frame(
                 data["path"], 
                 crop_mode=data["crop"],
                 color_mode=data["color"],
-                film_type=data["type"]
+                film_type=data["type"],
+                draw_holes=False
             )
             frames.append(frame)
 
         # Layout on A4
         margin = self.spin_margin.value()
         gap = self.spin_gap.value()
-        self.preview_pages = processor.layout_on_a4(frames, margin_mm=margin, gap_mm=gap)
+        self.preview_pages, self.layout_info = processor.layout_on_a4(frames, margin_mm=margin, gap_mm=gap)
 
         if self.preview_pages:
             # Show first page
@@ -186,7 +200,7 @@ class MainWindow(QMainWindow):
             qimg = self.pil_to_qimage(pil_img)
             pixmap = QPixmap.fromImage(qimg)
             
-            # Use fixed width for preview to avoid infinite layout loops, or just scale to container
+            # Scale to container
             view_w = self.scroll_area.viewport().width() - 10
             view_h = self.scroll_area.viewport().height() - 10
             
@@ -199,8 +213,49 @@ class MainWindow(QMainWindow):
                 )
                 self.preview_label.setPixmap(scaled_pixmap)
             else:
-                # Fallback if UI not yet fully laid out
                 self.preview_label.setPixmap(pixmap.scaled(800, 800, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def on_preview_clicked(self, pos):
+        if not self.layout_info or not self.preview_pages:
+            return
+        
+        # We only show first page in preview
+        page_info = self.layout_info[0]
+        pixmap = self.preview_label.pixmap()
+        if not pixmap or pixmap.isNull():
+            return
+            
+        lbl_w = self.preview_label.width()
+        lbl_h = self.preview_label.height()
+        pix_w = pixmap.width()
+        pix_h = pixmap.height()
+        
+        # Calculate offset due to alignment
+        offset_x = (lbl_w - pix_w) / 2
+        offset_y = (lbl_h - pix_h) / 2
+        
+        rel_x = pos.x() - offset_x
+        rel_y = pos.y() - offset_y
+        
+        if rel_x < 0 or rel_x >= pix_w or rel_y < 0 or rel_y >= pix_h:
+            return
+            
+        # Map to original image coordinates
+        orig_w = self.preview_pages[0].width
+        orig_h = self.preview_pages[0].height
+        
+        scale_x = orig_w / pix_w
+        scale_y = orig_h / pix_h
+        
+        orig_x = rel_x * scale_x
+        orig_y = rel_y * scale_y
+        
+        # Check which frame was clicked
+        for item in page_info:
+            x1, y1, x2, y2 = item["rect"]
+            if x1 <= orig_x <= x2 and y1 <= orig_y <= y2:
+                self.list_widget.setCurrentRow(item["index"])
+                break
 
     def pil_to_qimage(self, pil_img):
         if pil_img.mode != "RGB":
@@ -222,8 +277,6 @@ class MainWindow(QMainWindow):
                 save_path += ".pdf"
             
             try:
-                # Save using Pillow
-                # Need to convert to RGB for PDF if not already
                 pages_to_save = [p.convert("RGB") for p in self.preview_pages]
                 pages_to_save[0].save(
                     save_path, 
@@ -231,10 +284,8 @@ class MainWindow(QMainWindow):
                     append_images=pages_to_save[1:],
                     resolution=processor.DPI
                 )
-                from PySide6.QtWidgets import QMessageBox
                 QMessageBox.information(self, "成功", f"已成功导出到: {save_path}")
             except Exception as e:
-                from PySide6.QtWidgets import QMessageBox
                 QMessageBox.critical(self, "错误", f"导出失败: {e}")
 
 if __name__ == "__main__":

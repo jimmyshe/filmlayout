@@ -33,7 +33,7 @@ def test_generate():
     
     # Layout test
     frames = [frame1, frame2, frame3, frame4] * 10
-    pages = processor.layout_on_a4(frames)
+    pages, info = processor.layout_on_a4(frames)
     for i, page in enumerate(pages):
         page.save(f"test_page_{i}.png")
         print(f"Saved test_page_{i}.png")
