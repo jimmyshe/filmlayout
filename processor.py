@@ -1,11 +1,10 @@
 import os
 from PIL import Image, ImageDraw, ImageOps
 
-DPI = 300
-MM_TO_PX = DPI / 25.4
+DEFAULT_DPI = 300
 
-def mm_to_px(mm):
-    return int(mm * MM_TO_PX)
+def mm_to_px(mm, dpi=DEFAULT_DPI):
+    return int(mm * dpi / 25.4)
 
 # 35mm film frame dimensions (Standard 135 film)
 FRAME_W_MM = 36
@@ -29,22 +28,22 @@ def draw_rounded_rect(draw, x, y, w, h, r, fill):
     draw.pieslice([x, y + h - 2*r, x + 2*r, y + h], 90, 180, fill=fill)
     draw.pieslice([x + w - 2*r, y + h - 2*r, x + w, y + h], 0, 90, fill=fill)
 
-def draw_sprocket_holes(image, x_start_px, y_start_px, width_px):
+def draw_sprocket_holes(image, x_start_px, y_start_px, width_px, dpi=DEFAULT_DPI):
     """
     Draws continuous sprocket holes on the image.
     """
     draw = ImageDraw.Draw(image)
-    hole_w = mm_to_px(SPROCKET_HOLE_W_MM)
-    hole_h = mm_to_px(SPROCKET_HOLE_H_MM)
-    pitch = mm_to_px(SPROCKET_HOLE_PITCH_MM)
-    hole_r = mm_to_px(SPROCKET_HOLE_RADIUS_MM)
+    hole_w = mm_to_px(SPROCKET_HOLE_W_MM, dpi)
+    hole_h = mm_to_px(SPROCKET_HOLE_H_MM, dpi)
+    pitch = mm_to_px(SPROCKET_HOLE_PITCH_MM, dpi)
+    hole_r = mm_to_px(SPROCKET_HOLE_RADIUS_MM, dpi)
     
     margin_h = (FRAME_H_MM - IMAGE_H_MM) / 2
-    top_hole_y = mm_to_px((margin_h - SPROCKET_HOLE_H_MM) / 2)
-    bottom_hole_y = mm_to_px(FRAME_H_MM - margin_h + (margin_h - SPROCKET_HOLE_H_MM) / 2)
+    top_hole_y = mm_to_px((margin_h - SPROCKET_HOLE_H_MM) / 2, dpi)
+    bottom_hole_y = mm_to_px(FRAME_H_MM - margin_h + (margin_h - SPROCKET_HOLE_H_MM) / 2, dpi)
     
     # Use a fixed offset to ensure alignment across frames when gap is 2mm
-    offset = mm_to_px(0.5)
+    offset = mm_to_px(0.5, dpi)
     
     curr_x = x_start_px + offset
     while curr_x + hole_w <= x_start_px + width_px:
@@ -52,14 +51,14 @@ def draw_sprocket_holes(image, x_start_px, y_start_px, width_px):
         draw_rounded_rect(draw, curr_x, y_start_px + bottom_hole_y, hole_w, hole_h, hole_r, "white")
         curr_x += pitch
 
-def create_film_frame(image_path, crop_mode='short', color_mode='color', film_type='positive', draw_holes=True):
+def create_film_frame(image_path, crop_mode='short', color_mode='color', film_type='positive', rotation=0, draw_holes=True, dpi=DEFAULT_DPI):
     """
     Takes an image and returns a PIL Image object of a 35mm film frame.
     """
-    target_w = mm_to_px(FRAME_W_MM)
-    target_h = mm_to_px(FRAME_H_MM)
-    img_w = mm_to_px(IMAGE_W_MM)
-    img_h = mm_to_px(IMAGE_H_MM)
+    target_w = mm_to_px(FRAME_W_MM, dpi)
+    target_h = mm_to_px(FRAME_H_MM, dpi)
+    img_w = mm_to_px(IMAGE_W_MM, dpi)
+    img_h = mm_to_px(IMAGE_H_MM, dpi)
 
     # 1. Create black background
     frame = Image.new('RGB', (target_w, target_h), color='black')
@@ -67,6 +66,10 @@ def create_film_frame(image_path, crop_mode='short', color_mode='color', film_ty
     # 2. Process input image
     try:
         with Image.open(image_path) as img:
+            # Apply rotation
+            if rotation != 0:
+                img = img.rotate(rotation, expand=True)
+
             if color_mode == 'bw':
                 img = img.convert('L').convert('RGB')
             else:
@@ -107,33 +110,33 @@ def create_film_frame(image_path, crop_mode='short', color_mode='color', film_ty
             else:
                 canvas.paste(img, (left, top))
 
-            offset_y = mm_to_px((FRAME_H_MM - IMAGE_H_MM) / 2)
+            offset_y = mm_to_px((FRAME_H_MM - IMAGE_H_MM) / 2, dpi)
             frame.paste(canvas, (0, offset_y))
     except Exception as e:
         print(f"Error processing image {image_path}: {e}")
 
     # 3. Draw sprocket holes if requested
     if draw_holes:
-        draw_sprocket_holes(frame, 0, 0, target_w)
+        draw_sprocket_holes(frame, 0, 0, target_w, dpi)
 
     return frame
 
-def layout_on_a4(image_list, margin_mm=10, gap_mm=2):
+def layout_on_a4(image_list, margin_mm=10, gap_mm=2, dpi=DEFAULT_DPI):
     """
     image_list: list of PIL Image objects (the film frames)
     returns: (list of A4 PIL Images, list of layout_info)
     """
-    margin = mm_to_px(margin_mm)
-    gap = mm_to_px(gap_mm)
+    margin = mm_to_px(margin_mm, dpi)
+    gap = mm_to_px(gap_mm, dpi)
     
-    a4_w_p = mm_to_px(A4_W_MM)
-    a4_h_p = mm_to_px(A4_H_MM)
+    a4_w_p = mm_to_px(A4_W_MM, dpi)
+    a4_h_p = mm_to_px(A4_H_MM, dpi)
     
-    a4_w_l = mm_to_px(A4_H_MM)
-    a4_h_l = mm_to_px(A4_W_MM)
+    a4_w_l = mm_to_px(A4_H_MM, dpi)
+    a4_h_l = mm_to_px(A4_W_MM, dpi)
     
-    frame_w = mm_to_px(FRAME_W_MM)
-    frame_h = mm_to_px(FRAME_H_MM)
+    frame_w = mm_to_px(FRAME_W_MM, dpi)
+    frame_h = mm_to_px(FRAME_H_MM, dpi)
     
     def get_capacity(w, h, fw, fh, m, g):
         cols = (w - 2 * m + g) // (fw + g)
@@ -191,7 +194,7 @@ def layout_on_a4(image_list, margin_mm=10, gap_mm=2):
                 })
             
             # Draw continuous sprocket holes for the row
-            draw_sprocket_holes(page, x_row_start, y_row_start, row_w_px)
+            draw_sprocket_holes(page, x_row_start, y_row_start, row_w_px, dpi)
             
         pages.append(page)
         all_layout_info.append(page_layout)

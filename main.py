@@ -58,22 +58,48 @@ class MainWindow(QMainWindow):
         self.group_settings.setEnabled(False)
 
         settings_layout.addWidget(QLabel("裁切方式:"))
+        crop_layout = QHBoxLayout()
         self.combo_crop = QComboBox()
         self.combo_crop.addItems(["短边对齐 (填充)", "长边对齐 (适应)"])
         self.combo_crop.currentIndexChanged.connect(self.update_image_settings)
-        settings_layout.addWidget(self.combo_crop)
+        crop_layout.addWidget(self.combo_crop)
+        self.btn_apply_crop_all = QPushButton("应用全部")
+        self.btn_apply_crop_all.clicked.connect(self.apply_crop_to_all)
+        crop_layout.addWidget(self.btn_apply_crop_all)
+        settings_layout.addLayout(crop_layout)
 
         settings_layout.addWidget(QLabel("色彩模式:"))
+        color_layout = QHBoxLayout()
         self.combo_color = QComboBox()
         self.combo_color.addItems(["彩色", "黑白"])
         self.combo_color.currentIndexChanged.connect(self.update_image_settings)
-        settings_layout.addWidget(self.combo_color)
+        color_layout.addWidget(self.combo_color)
+        self.btn_apply_color_all = QPushButton("应用全部")
+        self.btn_apply_color_all.clicked.connect(self.apply_color_to_all)
+        color_layout.addWidget(self.btn_apply_color_all)
+        settings_layout.addLayout(color_layout)
 
         settings_layout.addWidget(QLabel("胶片类型:"))
+        type_layout = QHBoxLayout()
         self.combo_type = QComboBox()
         self.combo_type.addItems(["正片", "负片 (反相)"])
         self.combo_type.currentIndexChanged.connect(self.update_image_settings)
-        settings_layout.addWidget(self.combo_type)
+        type_layout.addWidget(self.combo_type)
+        self.btn_apply_type_all = QPushButton("应用全部")
+        self.btn_apply_type_all.clicked.connect(self.apply_type_to_all)
+        type_layout.addWidget(self.btn_apply_type_all)
+        settings_layout.addLayout(type_layout)
+
+        settings_layout.addWidget(QLabel("旋转角度:"))
+        rotate_layout = QHBoxLayout()
+        self.combo_rotate = QComboBox()
+        self.combo_rotate.addItems(["0°", "90°", "180°", "270°"])
+        self.combo_rotate.currentIndexChanged.connect(self.update_image_settings)
+        rotate_layout.addWidget(self.combo_rotate)
+        self.btn_apply_rotate_all = QPushButton("应用全部")
+        self.btn_apply_rotate_all.clicked.connect(self.apply_rotate_to_all)
+        rotate_layout.addWidget(self.btn_apply_rotate_all)
+        settings_layout.addLayout(rotate_layout)
 
         left_layout.addWidget(self.group_settings)
 
@@ -94,6 +120,12 @@ class MainWindow(QMainWindow):
         self.spin_gap.setValue(2)
         self.spin_gap.valueChanged.connect(self.update_preview)
         layout_vbox.addWidget(self.spin_gap)
+
+        layout_vbox.addWidget(QLabel("导出分辨率 (DPI):"))
+        self.combo_export_dpi = QComboBox()
+        self.combo_export_dpi.addItems(["300", "600", "1200", "2400", "3600"])
+        self.combo_export_dpi.setCurrentIndex(2) # Default 1200
+        layout_vbox.addWidget(self.combo_export_dpi)
         
         left_layout.addWidget(layout_group)
 
@@ -130,7 +162,8 @@ class MainWindow(QMainWindow):
                     "path": f,
                     "crop": "short",
                     "color": "color",
-                    "type": "positive"
+                    "type": "positive",
+                    "rotation": 0
                 })
                 self.list_widget.addItem(os.path.basename(f))
             self.update_preview()
@@ -156,6 +189,7 @@ class MainWindow(QMainWindow):
         self.combo_crop.setCurrentIndex(0 if data["crop"] == "short" else 1)
         self.combo_color.setCurrentIndex(0 if data["color"] == "color" else 1)
         self.combo_type.setCurrentIndex(0 if data["type"] == "positive" else 1)
+        self.combo_rotate.setCurrentIndex(data["rotation"] // 90)
         self._updating_ui = False
 
     def update_image_settings(self):
@@ -169,7 +203,32 @@ class MainWindow(QMainWindow):
         self.images_data[row]["crop"] = "short" if self.combo_crop.currentIndex() == 0 else "long"
         self.images_data[row]["color"] = "color" if self.combo_color.currentIndex() == 0 else "bw"
         self.images_data[row]["type"] = "positive" if self.combo_type.currentIndex() == 0 else "negative"
+        self.images_data[row]["rotation"] = self.combo_rotate.currentIndex() * 90
         
+        self.update_preview()
+
+    def apply_color_to_all(self):
+        color = "color" if self.combo_color.currentIndex() == 0 else "bw"
+        for data in self.images_data:
+            data["color"] = color
+        self.update_preview()
+
+    def apply_type_to_all(self):
+        film_type = "positive" if self.combo_type.currentIndex() == 0 else "negative"
+        for data in self.images_data:
+            data["type"] = film_type
+        self.update_preview()
+
+    def apply_crop_to_all(self):
+        crop = "short" if self.combo_crop.currentIndex() == 0 else "long"
+        for data in self.images_data:
+            data["crop"] = crop
+        self.update_preview()
+
+    def apply_rotate_to_all(self):
+        rotation = self.combo_rotate.currentIndex() * 90
+        for data in self.images_data:
+            data["rotation"] = rotation
         self.update_preview()
 
     def update_preview(self):
@@ -185,6 +244,7 @@ class MainWindow(QMainWindow):
                 crop_mode=data["crop"],
                 color_mode=data["color"],
                 film_type=data["type"],
+                rotation=data["rotation"],
                 draw_holes=False
             )
             frames.append(frame)
@@ -266,8 +326,10 @@ class MainWindow(QMainWindow):
         return qimage
 
     def export_pdf(self):
-        if not self.preview_pages:
+        if not self.images_data:
             return
+
+        export_dpi = int(self.combo_export_dpi.currentText())
 
         save_path, _ = QFileDialog.getSaveFileName(
             self, "导出 PDF", "", "PDF Files (*.pdf)"
@@ -277,16 +339,37 @@ class MainWindow(QMainWindow):
                 save_path += ".pdf"
             
             try:
-                pages_to_save = [p.convert("RGB") for p in self.preview_pages]
+                # Re-generate frames and layout at the chosen resolution
+                high_res_frames = []
+                for data in self.images_data:
+                    frame = processor.create_film_frame(
+                        data["path"], 
+                        crop_mode=data["crop"],
+                        color_mode=data["color"],
+                        film_type=data["type"],
+                        rotation=data["rotation"],
+                        draw_holes=False,
+                        dpi=export_dpi
+                    )
+                    high_res_frames.append(frame)
+                
+                margin = self.spin_margin.value()
+                gap = self.spin_gap.value()
+                high_res_pages, _ = processor.layout_on_a4(high_res_frames, margin_mm=margin, gap_mm=gap, dpi=export_dpi)
+                
+                if not high_res_pages:
+                    return
+
+                pages_to_save = [p.convert("RGB") for p in high_res_pages]
                 pages_to_save[0].save(
                     save_path, 
                     save_all=True, 
                     append_images=pages_to_save[1:],
-                    resolution=processor.DPI
+                    resolution=export_dpi
                 )
-                QMessageBox.information(self, "成功", f"已成功导出到: {save_path}")
+                QMessageBox.information(self, "完成", f"PDF 已成功导出 (分辨率: {export_dpi} DPI)。")
             except Exception as e:
-                QMessageBox.critical(self, "错误", f"导出失败: {e}")
+                QMessageBox.critical(self, "错误", f"导出 PDF 失败: {e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

@@ -30,9 +30,14 @@ def test_generate():
     frame4 = processor.create_film_frame("test_input.jpg", film_type='negative')
     frame4.save("test_frame_neg.png")
     print("Saved test_frame_neg.png")
+
+    # 5. Test Rotation
+    frame5 = processor.create_film_frame("test_input.jpg", rotation=90)
+    frame5.save("test_frame_rot90.png")
+    print("Saved test_frame_rot90.png")
     
     # Layout test
-    frames = [frame1, frame2, frame3, frame4] * 10
+    frames = [frame1, frame2, frame3, frame4, frame5] * 8
     pages, info = processor.layout_on_a4(frames)
     for i, page in enumerate(pages):
         page.save(f"test_page_{i}.png")
