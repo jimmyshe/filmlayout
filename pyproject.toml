@@ -1,7 +1,7 @@
 [project]
 name = "filmlayout"
 version = "0.1.0"
-description = "Add your description here"
+description = "35mm 胶片风格排版工具，支持 A4/A5/A6 纸张高分辨率 PDF 导出"
 requires-python = ">=3.13"
 dependencies = [
     "pyside6",
