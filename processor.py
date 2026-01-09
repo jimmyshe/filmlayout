@@ -1,5 +1,5 @@
 import os
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 DPI = 300
 MM_TO_PX = DPI / 25.4
@@ -24,9 +24,12 @@ SPROCKET_HOLE_RADIUS_MM = 0.5
 A4_W_MM = 210
 A4_H_MM = 297
 
-def create_film_frame(image_path):
+def create_film_frame(image_path, crop_mode='short', color_mode='color', film_type='positive'):
     """
     Takes an image and returns a PIL Image object of a 35mm film frame.
+    crop_mode: 'short' (fill) or 'long' (fit)
+    color_mode: 'color' or 'bw'
+    film_type: 'positive' or 'negative'
     """
     target_w = mm_to_px(FRAME_W_MM)
     target_h = mm_to_px(FRAME_H_MM)
@@ -39,34 +42,60 @@ def create_film_frame(image_path):
     # 2. Process input image
     try:
         with Image.open(image_path) as img:
-            # Aspect fill / cover
+            # Handle color mode
+            if color_mode == 'bw':
+                img = img.convert('L').convert('RGB')
+            else:
+                img = img.convert('RGB')
+
+            # Handle film type (negative)
+            if film_type == 'negative':
+                img = ImageOps.invert(img)
+
             img_ratio = img.width / img.height
             target_ratio = img_w / img_h
 
-            if img_ratio > target_ratio:
-                # Image is wider than target
-                new_h = img_h
-                new_w = int(new_h * img_ratio)
+            if crop_mode == 'short':
+                # Aspect fill / cover (Align short side)
+                if img_ratio > target_ratio:
+                    new_h = img_h
+                    new_w = int(new_h * img_ratio)
+                else:
+                    new_w = img_w
+                    new_h = int(new_w / img_ratio)
             else:
-                # Image is taller than target
-                new_w = img_w
-                new_h = int(new_w / img_ratio)
+                # Aspect fit (Align long side)
+                if img_ratio > target_ratio:
+                    new_w = img_w
+                    new_h = int(new_w / img_ratio)
+                else:
+                    new_h = img_h
+                    new_w = int(new_h * img_ratio)
 
             img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-            # Crop center
-            left = (new_w - img_w) / 2
-            top = (new_h - img_h) / 2
-            right = (new_w + img_w) / 2
-            bottom = (new_h + img_h) / 2
-            img = img.crop((left, top, right, bottom))
+            # Create a transparent-friendly canvas for the image part (actually black is fine as film is black)
+            canvas = Image.new('RGB', (img_w, img_h), color='black')
+            
+            # Center the resized image on the canvas
+            left = (img_w - new_w) // 2
+            top = (img_h - new_h) // 2
+            
+            if crop_mode == 'short':
+                # Crop center if filling
+                crop_left = (new_w - img_w) // 2
+                crop_top = (new_h - img_h) // 2
+                img = img.crop((crop_left, crop_top, crop_left + img_w, crop_top + img_h))
+                canvas.paste(img, (0, 0))
+            else:
+                # Paste centered if fitting
+                canvas.paste(img, (left, top))
 
-            # Paste image onto frame
+            # Paste canvas onto frame
             offset_y = mm_to_px((FRAME_H_MM - IMAGE_H_MM) / 2)
-            frame.paste(img, (0, offset_y))
+            frame.paste(canvas, (0, offset_y))
     except Exception as e:
         print(f"Error processing image {image_path}: {e}")
-        # Return black frame if error
 
     # 3. Draw sprocket holes
     draw = ImageDraw.Draw(frame)

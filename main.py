@@ -2,7 +2,7 @@ import sys
 import os
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QListWidget, QLabel, 
-                             QFileDialog, QScrollArea, QSpinBox)
+                             QFileDialog, QScrollArea, QSpinBox, QComboBox, QGroupBox)
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtCore import Qt
 from PIL import Image
@@ -13,9 +13,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("35mm 胶片排版工具")
-        self.resize(1000, 800)
+        self.resize(1100, 900)
 
-        self.image_paths = []
+        self.images_data = [] # List of dict: {"path": str, "crop": str, "color": str, "type": str}
         self.preview_pages = []
 
         self.init_ui()
@@ -40,21 +40,53 @@ class MainWindow(QMainWindow):
 
         left_layout.addWidget(QLabel("已添加照片:"))
         self.list_widget = QListWidget()
+        self.list_widget.currentRowChanged.connect(self.on_selection_changed)
         left_layout.addWidget(self.list_widget)
 
-        left_layout.addWidget(QLabel("页边距 (mm):"))
+        # Per-image settings group
+        self.group_settings = QGroupBox("选中照片设置")
+        settings_layout = QVBoxLayout(self.group_settings)
+        self.group_settings.setEnabled(False)
+
+        settings_layout.addWidget(QLabel("裁切方式:"))
+        self.combo_crop = QComboBox()
+        self.combo_crop.addItems(["短边对齐 (填充)", "长边对齐 (适应)"])
+        self.combo_crop.currentIndexChanged.connect(self.update_image_settings)
+        settings_layout.addWidget(self.combo_crop)
+
+        settings_layout.addWidget(QLabel("色彩模式:"))
+        self.combo_color = QComboBox()
+        self.combo_color.addItems(["彩色", "黑白"])
+        self.combo_color.currentIndexChanged.connect(self.update_image_settings)
+        settings_layout.addWidget(self.combo_color)
+
+        settings_layout.addWidget(QLabel("胶片类型:"))
+        self.combo_type = QComboBox()
+        self.combo_type.addItems(["正片", "负片 (反相)"])
+        self.combo_type.currentIndexChanged.connect(self.update_image_settings)
+        settings_layout.addWidget(self.combo_type)
+
+        left_layout.addWidget(self.group_settings)
+
+        # Layout settings
+        layout_group = QGroupBox("全局排版设置")
+        layout_vbox = QVBoxLayout(layout_group)
+
+        layout_vbox.addWidget(QLabel("页边距 (mm):"))
         self.spin_margin = QSpinBox()
         self.spin_margin.setRange(0, 50)
         self.spin_margin.setValue(10)
         self.spin_margin.valueChanged.connect(self.update_preview)
-        left_layout.addWidget(self.spin_margin)
+        layout_vbox.addWidget(self.spin_margin)
 
-        left_layout.addWidget(QLabel("胶片间隙 (mm):"))
+        layout_vbox.addWidget(QLabel("胶片间隙 (mm):"))
         self.spin_gap = QSpinBox()
         self.spin_gap.setRange(0, 20)
         self.spin_gap.setValue(2)
         self.spin_gap.valueChanged.connect(self.update_preview)
-        left_layout.addWidget(self.spin_gap)
+        layout_vbox.addWidget(self.spin_gap)
+        
+        left_layout.addWidget(layout_group)
 
         self.btn_export = QPushButton("导出为 PDF")
         self.btn_export.clicked.connect(self.export_pdf)
@@ -76,30 +108,71 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(right_panel)
 
+        self._updating_ui = False
+
     def add_photos(self):
         files, _ = QFileDialog.getOpenFileNames(
             self, "选择照片", "", "Images (*.png *.jpg *.jpeg *.bmp *.tiff)"
         )
         if files:
-            self.image_paths.extend(files)
             for f in files:
+                self.images_data.append({
+                    "path": f,
+                    "crop": "short",
+                    "color": "color",
+                    "type": "positive"
+                })
                 self.list_widget.addItem(os.path.basename(f))
             self.update_preview()
 
     def clear_photos(self):
-        self.image_paths = []
+        self.images_data = []
         self.list_widget.clear()
         self.preview_label.setText("添加照片后显示预览")
         self.preview_label.setPixmap(QPixmap())
+        self.group_settings.setEnabled(False)
+
+    def on_selection_changed(self, row):
+        if row < 0 or row >= len(self.images_data):
+            self.group_settings.setEnabled(False)
+            return
+        
+        self.group_settings.setEnabled(True)
+        data = self.images_data[row]
+        
+        self._updating_ui = True
+        self.combo_crop.setCurrentIndex(0 if data["crop"] == "short" else 1)
+        self.combo_color.setCurrentIndex(0 if data["color"] == "color" else 1)
+        self.combo_type.setCurrentIndex(0 if data["type"] == "positive" else 1)
+        self._updating_ui = False
+
+    def update_image_settings(self):
+        if self._updating_ui:
+            return
+        
+        row = self.list_widget.currentRow()
+        if row < 0 or row >= len(self.images_data):
+            return
+        
+        self.images_data[row]["crop"] = "short" if self.combo_crop.currentIndex() == 0 else "long"
+        self.images_data[row]["color"] = "color" if self.combo_color.currentIndex() == 0 else "bw"
+        self.images_data[row]["type"] = "positive" if self.combo_type.currentIndex() == 0 else "negative"
+        
+        self.update_preview()
 
     def update_preview(self):
-        if not self.image_paths:
+        if not self.images_data:
             return
 
         # Create film frames
         frames = []
-        for path in self.image_paths:
-            frame = processor.create_film_frame(path)
+        for data in self.images_data:
+            frame = processor.create_film_frame(
+                data["path"], 
+                crop_mode=data["crop"],
+                color_mode=data["color"],
+                film_type=data["type"]
+            )
             frames.append(frame)
 
         # Layout on A4
